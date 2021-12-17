@@ -1,0 +1,78 @@
+function Alignment
+%参数辨识精对准
+global Re e wie g0 ppm ug deg min sec hur dph   %全局变量
+
+    glb;
+    Ts = 0.02;
+
+    att = pi/180*[0.; 0; 10];	 %[pitch roll azimuth]  
+	vb = [0; 0; 0];          vn = Att2Mat(att)*vb;  %[0 vby 0]       
+	pos = [34*deg+14.76289014*min; 108*deg+54.57983*min; 380];  %[latitude longitude height]
+    tr = [att; vn; pos; zeros(6,1)];
+    wat=zeros(6,1); 
+    tr = getdtr(tr, wat);    
+    wvm=tr(10:15)*Ts/2;
+        
+    qnb = Att2Quat(att);  
+    fi=[2; 2; 60]*min;  %dpos=[30/Re; 30/Re; 30];
+    qnb = QuatMul(Rv2Quat(-fi), qnb);  %pos = pos + dpos; 
+    Cnb = Quat2Mat(qnb);
+    a=Quat2Att(qnb);
+    
+    v=zeros(3,1);
+    theE=zeros(3,1); theN=theE;
+    PE=10*eye(3);    PN=2*PE;
+    
+    	slti = sin(pos(1)); clti = cos(pos(1)); tlti = slti/clti; slti2 = slti^2; slti4 = slti2^2;
+        RM = Re*(1-2*e+3*e*slti2); RN = Re*(1+e*slti2); RMh = RM + pos(3); RNh = RN + pos(3);
+        wnie = wie * [0; clti; slti];    wnen = [-vn(2)/RMh; vn(1)/RNh; vn(1)/RNh*tlti];
+	    wnin = wnie + wnen;
+        Cnn = Rv2Mat(wnin*Ts/2); %[1, 0, 0; 0, 1, 0; 0, 0, 1] - 1.0/2*Asym(jm);
+
+    for k=1 :1: 100*50
+%        sk = [0.001*g0*sin(6.26*1*k*Ts); 0.001*g0*sin(5.26*1*k*Ts); 0.001*g0*sin(3.26*1*k*Ts)];
+%        sk = [0; 0; 0];
+%        vm = ([1;1;1]+dKA).*dvm + (db+sk)*Ts;        %刻度系数、偏置、晃动
+        wm1=wvm(1:3); wm2=wm1;      vm1=wvm(4:6); vm2=vm1;
+        wm = wm1 + wm2;  vm = vm1 + vm2;
+        dvrotm = 1/2*cross(wm, vm); dvsculm = 2/3*(cross(wm1,vm2)+cross(vm1,wm2));
+        dv = Cnb*(vm+dvrotm+dvsculm);  
+       v=v+dv;
+ %       v=v+Cnb*vm;
+        H=[k*Ts, (k*Ts)^2, (k*Ts)^3];
+        vE=v(1); vN=v(2);
+        theE=theE+PE*H'*(vE-H*theE);        %东向
+        tao=1/(1+H*PE*H');
+        PE=PE-tao*PE*H'*H*PE;
+        theN=theN+PN*H'*(vN-H*theN);        %北向
+        tao=1/(1+H*PN*H');
+        PN=PN-tao*PN*H'*H*PN;
+        if mod(k,10*50)==0
+            step=k/50,
+%            pen(step,:)=[PE(1,1), PE(2,2), PE(3,3), PN(1,1), PN(2,2), PN(3,3)];
+        end
+    end
+%    plot(pen);
+    
+    a1E=theE(1); a2E=theE(2); a3E=theE(3);
+    a1N=theN(1); a2N=theN(2); a3N=theN(3);
+    
+    sl=sin(pos(1));  cl=cos(pos(1));  tl=sl/cl; sl2=sl^2; sl4=sl2^2;
+    g = g0*(1+5.27094e-3*sl2+2.32718e-5*sl4) - 3.086e-6*pos(3);
+
+    fiN0=a1E/(-g);
+    uN=a2E/(-1/2*g);
+    uE=a3E/(1/6*wie*sl);       
+    fiE0=a1N/g;
+    %uE=a2N/(1/2*g);
+    uU=(a3N/(1/6*g*wie)-uN*sl)/(-cl);
+    fiU0=fiN0*tl-uE/(wie*cl);
+    
+    %E=Asym([fiE0; fiN0; fiU0]);
+    %Cnb=(I+E)*Cnb;
+    fi=[fiE0; fiN0; fiU0];
+    fi*60,
+    qnb=QuatMul(Rv2Quat(fi),qnb);
+    att1=Quat2Att(qnb),
+    err=(att1*deg-att)/min,
+    
